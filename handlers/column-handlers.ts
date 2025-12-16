@@ -12,6 +12,18 @@ import { getNextColumnLetter, initSheetsClient } from '../sheets';
 import { proceedWithMetadataCollection } from '../workflow';
 
 /**
+ * Start new column creation flow - ask for date name
+ */
+async function askForDateName(ctx: MyContext, column: string): Promise<void> {
+  ctx.session.targetColumn = column;
+  ctx.session.isNewColumn = true;
+  ctx.session.state = 'awaiting_date_name';
+  await ctx.reply(
+    `📅 Please provide the date name for column ${column} (row 1):`,
+  );
+}
+
+/**
  * Handle awaiting_column_confirmation state
  */
 export async function handleColumnConfirmation(
@@ -38,12 +50,7 @@ export async function handleColumnConfirmation(
     } else {
       // Calculate next column and go directly to date name
       const nextColumn = getNextColumnLetter(ctx.session.targetColumn);
-      ctx.session.targetColumn = nextColumn;
-      ctx.session.isNewColumn = true;
-      ctx.session.state = 'awaiting_date_name';
-      await ctx.reply(
-        `📅 Please provide the date name for column ${nextColumn} (row 1):`,
-      );
+      await askForDateName(ctx, nextColumn);
     }
     return true;
   }
@@ -127,14 +134,8 @@ export async function handleNewColumnChoice(
 
   if (answer === 'yes') {
     // targetColumn is already set from workflow.ts
-    if (!ctx.session.targetColumn) {
-      ctx.session.targetColumn = SHEET_DATA_FIRST_COLUMN;
-    }
-    ctx.session.isNewColumn = true;
-    ctx.session.state = 'awaiting_date_name';
-    await ctx.reply(
-      `📅 Please provide the date name for column ${ctx.session.targetColumn} (row 1):`,
-    );
+    const column = ctx.session.targetColumn || SHEET_DATA_FIRST_COLUMN;
+    await askForDateName(ctx, column);
   } else {
     resetSession(ctx.session);
     await ctx.reply(`✅ Operation cancelled. ${MSG_USE_UPDATE_AGAIN}`);
