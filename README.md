@@ -208,7 +208,7 @@ bun run dev
 - **Columns E+**: Date columns (e.g., "September 7", "December 13")
 - **Data starts from row 7**
 
-To change them, proceed to `constants.ts`
+To change, proceed to `constants.ts`
 
 ## License
 
