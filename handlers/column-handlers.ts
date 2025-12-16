@@ -1,6 +1,7 @@
 import { handleApiError, parseYesNo, replyErrorAndReset } from '../bot-helpers';
 import {
   ERR_INVALID_YES_NO,
+  ERR_SESSION_DATA_LOST,
   ERR_TARGET_COLUMN_NOT_SET,
   MSG_USE_UPDATE_AGAIN,
   SHEET_DATA_FIRST_COLUMN,
@@ -21,27 +22,84 @@ export async function handleColumnConfirmation(
     return false;
   }
 
-  const answer = parseYesNo(text);
+  const trimmedText = text.trim();
 
-  if (answer === null) {
-    await ctx.reply(ERR_INVALID_YES_NO);
+  // Check for yes/no first
+  const answer = parseYesNo(trimmedText);
+
+  if (answer !== null) {
+    if (!ctx.session.targetColumn) {
+      await replyErrorAndReset(ctx, ERR_TARGET_COLUMN_NOT_SET);
+      return true;
+    }
+
+    if (answer === 'yes') {
+      await proceedWithMetadataCollection(ctx);
+    } else {
+      // Calculate next column
+      const nextColumn = getNextColumnLetter(ctx.session.targetColumn);
+      ctx.session.state = 'awaiting_new_column_choice';
+      await ctx.reply(`Create new column ${nextColumn}? (yes/no)`);
+    }
     return true;
   }
 
-  if (!ctx.session.targetColumn) {
-    await replyErrorAndReset(ctx, ERR_TARGET_COLUMN_NOT_SET);
-    return true;
-  }
-
-  if (answer === 'yes') {
+  // Check if input is a column letter (A-Z, AA-ZZ)
+  const columnLetterPattern = /^[A-Z]{1,2}$/i;
+  if (columnLetterPattern.test(trimmedText)) {
+    ctx.session.targetColumn = trimmedText.toUpperCase();
+    ctx.session.isNewColumn = false;
     await proceedWithMetadataCollection(ctx);
-  } else {
-    // Calculate next column
-    const nextColumn = getNextColumnLetter(ctx.session.targetColumn);
-    ctx.session.state = 'awaiting_new_column_choice';
-    await ctx.reply(`Create new column ${nextColumn}? (yes/no)`);
+    return true;
   }
 
+  // Otherwise, treat as date text search
+  try {
+    const sheetsClient = await initSheetsClient();
+    const result = await sheetsClient.findColumnByDateText(trimmedText);
+
+    if (!result.success) {
+      if (result.error === 'not_found') {
+        await ctx.reply(
+          `❌ No column found with date text "${trimmedText}".\n\n` +
+            `Please try again with a different date text, column letter, or answer yes/no.`,
+        );
+        return true;
+      }
+    } else {
+      // Check if multiple matches found
+      if ('multiple' in result && result.multiple === true) {
+        ctx.session.columnMatches = result.matches;
+        ctx.session.state = 'awaiting_column_selection';
+
+        let message = `📋 Multiple columns found matching "${trimmedText}":\n\n`;
+        result.matches.forEach((match, index) => {
+          message += `${index + 1}. Column ${match.column}: ${match.date}\n`;
+        });
+        message += `\nPlease choose a column by typing its number (1-${result.matches.length}) or column letter:`;
+
+        await ctx.reply(message);
+        return true;
+      }
+
+      // Single match found (result has 'column' property)
+      if ('column' in result) {
+        ctx.session.targetColumn = result.column;
+        ctx.session.isNewColumn = false;
+        await proceedWithMetadataCollection(ctx);
+        return true;
+      }
+    }
+  } catch (error) {
+    await handleApiError(ctx, error, 'searching for column');
+    return true;
+  }
+
+  // If we get here, input wasn't recognized
+  await ctx.reply(
+    `${ERR_INVALID_YES_NO}\n\n` +
+      `You can also type a column letter (e.g., "F", "G") or date text to search.`,
+  );
   return true;
 }
 
@@ -80,6 +138,71 @@ export async function handleNewColumnChoice(
     await ctx.reply(`✅ Operation cancelled. ${MSG_USE_UPDATE_AGAIN}`);
   }
 
+  return true;
+}
+
+/**
+ * Handle awaiting_column_selection state
+ */
+export async function handleColumnSelection(
+  ctx: MyContext,
+  text: string,
+): Promise<boolean> {
+  if (ctx.session.state !== 'awaiting_column_selection') {
+    return false;
+  }
+
+  if (!ctx.session.columnMatches || ctx.session.columnMatches.length === 0) {
+    await replyErrorAndReset(ctx, ERR_SESSION_DATA_LOST);
+    return true;
+  }
+
+  const trimmedText = text.trim();
+
+  // Check if user typed a number (1-based index)
+  const numberMatch = /^(\d+)$/.exec(trimmedText);
+  if (numberMatch) {
+    const index = parseInt(numberMatch[1], 10) - 1; // Convert to 0-based
+    if (index >= 0 && index < ctx.session.columnMatches.length) {
+      const selectedMatch = ctx.session.columnMatches[index];
+      ctx.session.targetColumn = selectedMatch.column;
+      ctx.session.isNewColumn = false;
+      ctx.session.columnMatches = undefined;
+      await proceedWithMetadataCollection(ctx);
+      return true;
+    } else {
+      await ctx.reply(
+        `❌ Invalid selection. Please choose a number between 1 and ${ctx.session.columnMatches.length}, or type a column letter.`,
+      );
+      return true;
+    }
+  }
+
+  // Check if user typed a column letter
+  const columnLetterPattern = /^[A-Z]{1,2}$/i;
+  if (columnLetterPattern.test(trimmedText)) {
+    const columnLetter = trimmedText.toUpperCase();
+    const match = ctx.session.columnMatches.find(
+      (m) => m.column === columnLetter,
+    );
+    if (match) {
+      ctx.session.targetColumn = match.column;
+      ctx.session.isNewColumn = false;
+      ctx.session.columnMatches = undefined;
+      await proceedWithMetadataCollection(ctx);
+      return true;
+    } else {
+      await ctx.reply(
+        `❌ Column ${columnLetter} is not in the list. Please choose from the options above.`,
+      );
+      return true;
+    }
+  }
+
+  // Invalid input
+  await ctx.reply(
+    `❌ Please choose a column by typing its number (1-${ctx.session.columnMatches.length}) or column letter.`,
+  );
   return true;
 }
 

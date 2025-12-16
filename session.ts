@@ -5,6 +5,7 @@ export interface SessionData {
     | 'idle'
     | 'awaiting_column_confirmation'
     | 'awaiting_new_column_choice'
+    | 'awaiting_column_selection'
     | 'awaiting_date_name'
     | 'awaiting_cost'
     | 'awaiting_player_count'
@@ -25,6 +26,7 @@ export interface SessionData {
   existingValuesEntries?: Array<{ nickname: string; value: string | number }>; // Store existing values for skipped tracking
   pollId?: string; // For poll-based workflow
   pollQuestion?: string; // For display
+  columnMatches?: Array<{ column: string; date: string }>; // For column selection when multiple matches found
 }
 
 /**
@@ -44,6 +46,7 @@ export function resetSession(session: SessionData): void {
   session.existingValuesEntries = undefined;
   session.pollId = undefined;
   session.pollQuestion = undefined;
+  session.columnMatches = undefined;
 }
 
 export type MyContext = Context & SessionFlavor<SessionData>;

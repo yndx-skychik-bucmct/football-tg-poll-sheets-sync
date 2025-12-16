@@ -3,13 +3,14 @@ import { google } from 'googleapis';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  SHEET_DATA_FIRST_COLUMN,
   SHEET_COST_ROW,
+  SHEET_DATA_FIRST_COLUMN,
+  SHEET_DATA_FIRST_ROW,
   SHEET_DATE_ROW,
-  SHEET_PLAYER_COUNT_ROW,
+  SHEET_EXCLUDE_COLUMN_PATTERN,
   SHEET_NAME,
   SHEET_NICKNAME_COLUMN,
-  SHEET_DATA_FIRST_ROW,
+  SHEET_PLAYER_COUNT_ROW,
 } from './constants';
 
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
@@ -78,6 +79,15 @@ interface SheetsClient {
     overrideExisting?: boolean,
   ) => Promise<{ updated: number; notFound: string[] }>;
   findLastDateColumn: () => Promise<{ column: string; date: string } | null>;
+  findColumnByDateText: (text: string) => Promise<
+    | { success: true; column: string; date: string }
+    | {
+        success: true;
+        multiple: true;
+        matches: Array<{ column: string; date: string }>;
+      }
+    | { success: false; error: 'not_found' }
+  >;
   getColumnMetadata: (column: string) => Promise<ColumnMetadata>;
   writeColumnMetadata: (
     column: string,
@@ -364,6 +374,86 @@ async function initSheetsClient(): Promise<SheetsClient> {
   }
 
   /**
+   * Find column by searching for date text in row 1
+   * Returns column letter and date if exactly one match found
+   * Returns matches array if multiple found (sorted by column index descending)
+   * Returns error info if 0 matches found
+   */
+  async function findColumnByDateText(text: string): Promise<
+    | { success: true; column: string; date: string }
+    | {
+        success: true;
+        multiple: true;
+        matches: Array<{ column: string; date: string }>;
+      }
+    | { success: false; error: 'not_found' }
+  > {
+    const searchText = text.trim().toLowerCase();
+    if (!searchText) {
+      return { success: false, error: 'not_found' };
+    }
+
+    // Read row 1 from column F to column ZZ
+    const range = `'${SHEET_NAME}'!${SHEET_DATA_FIRST_COLUMN}${SHEET_DATE_ROW}:ZZ${SHEET_DATE_ROW}`;
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range,
+    });
+
+    const values = response.data.values?.[0] || [];
+    const matches: Array<{ column: string; date: string }> = [];
+
+    // Search through all cells in row 1
+    for (let i = 0; i < values.length; i++) {
+      const value = values[i];
+      if (
+        value !== null &&
+        value !== undefined &&
+        String(value).trim() !== ''
+      ) {
+        const cellValue = String(value).trim();
+        // Skip columns that match exclude pattern
+        if (SHEET_EXCLUDE_COLUMN_PATTERN.test(cellValue)) {
+          continue;
+        }
+        // Case-insensitive partial match
+        if (cellValue.toLowerCase().includes(searchText)) {
+          const columnIndex = columnLetterToIndex(SHEET_DATA_FIRST_COLUMN) + i;
+          const columnLetter = indexToColumnLetter(columnIndex);
+          matches.push({
+            column: columnLetter,
+            date: cellValue,
+          });
+        }
+      }
+    }
+
+    if (matches.length === 0) {
+      return { success: false, error: 'not_found' };
+    }
+
+    if (matches.length > 1) {
+      // Sort by column index descending (biggest ID first)
+      matches.sort((a, b) => {
+        const indexA = columnLetterToIndex(a.column);
+        const indexB = columnLetterToIndex(b.column);
+        return indexB - indexA; // Descending order
+      });
+      return {
+        success: true,
+        multiple: true,
+        matches,
+      };
+    }
+
+    return {
+      success: true,
+      column: matches[0].column,
+      date: matches[0].date,
+    };
+  }
+
+  /**
    * Get metadata for a column (date, cost, player count from rows 1-3)
    */
   async function getColumnMetadata(column: string): Promise<ColumnMetadata> {
@@ -471,6 +561,7 @@ async function initSheetsClient(): Promise<SheetsClient> {
     checkExistingValues,
     writeZeros,
     findLastDateColumn,
+    findColumnByDateText,
     getColumnMetadata,
     writeColumnMetadata,
   };

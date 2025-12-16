@@ -16,3 +16,4 @@ export const SHEET_NICKNAME_COLUMN = 'B'; // Column B contains Telegram nickname
 export const SHEET_DATE_ROW = 1; // Row 1 contains date
 export const SHEET_COST_ROW = 2; // Row 2 contains cost
 export const SHEET_PLAYER_COUNT_ROW = 3; // Row 3 contains player count
+export const SHEET_EXCLUDE_COLUMN_PATTERN = /^баланс\s+/i; // Exclude columns starting with "Баланс "

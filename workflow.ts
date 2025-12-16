@@ -1,11 +1,11 @@
 import {
-    buildUpdateResultMessage,
-    handleApiError,
-    replyErrorAndReset,
+  buildUpdateResultMessage,
+  handleApiError,
+  replyErrorAndReset,
 } from './bot-helpers';
 import {
-    ERR_TARGET_COLUMN_NOT_SET,
-    SHEET_DATA_FIRST_COLUMN,
+  ERR_TARGET_COLUMN_NOT_SET,
+  SHEET_DATA_FIRST_COLUMN,
 } from './constants';
 import type { MyContext } from './session';
 import { resetSession } from './session';
@@ -39,7 +39,7 @@ export async function startColumnDetectionFlow(ctx: MyContext): Promise<void> {
 
     await ctx.reply(
       `📅 I detected column ${lastDateColumn.column} (${lastDateColumn.date}).\n\n` +
-        `Update this column? (yes/no)`,
+        `Update this column? (yes/no, column letter, or date text)`,
     );
   } catch (error) {
     await handleApiError(ctx, error, 'detecting column');

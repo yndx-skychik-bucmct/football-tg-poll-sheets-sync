@@ -2,6 +2,7 @@ import type { Bot } from 'grammy';
 import type { MyContext } from '../session';
 import {
   handleColumnConfirmation,
+  handleColumnSelection,
   handleCost,
   handleDateName,
   handleNewColumnChoice,
@@ -37,6 +38,7 @@ export function registerMessageHandlers(bot: Bot<MyContext>): void {
 
     // Column handlers
     if (await handleColumnConfirmation(ctx, text)) return;
+    if (await handleColumnSelection(ctx, rawText)) return;
     if (await handleNewColumnChoice(ctx, text)) return;
     if (await handleDateName(ctx, rawText)) return;
     if (await handleCost(ctx, text)) return;
